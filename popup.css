@@ -1,0 +1,77 @@
+:root {
+  --bg: #f5eee5;
+  --text: #191612;
+  --muted: #5e574d;
+  --accent: #b85028;
+  --accent-deep: #7c3419;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  width: 340px;
+  min-height: 260px;
+  font-family: "Avenir Next", "Segoe UI", "Helvetica Neue", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at top left, rgba(184, 80, 40, 0.18), transparent 28%),
+    linear-gradient(180deg, #fbf7f0 0%, var(--bg) 100%);
+}
+
+.popup {
+  padding: 24px;
+}
+
+.chip {
+  margin: 0 0 10px;
+  font-size: 0.72rem;
+  text-transform: uppercase;
+  letter-spacing: 0.18em;
+  font-weight: 800;
+  color: var(--accent-deep);
+}
+
+h1 {
+  margin: 0;
+  font-family: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", serif;
+  font-size: 2.4rem;
+  line-height: 0.95;
+  font-weight: 400;
+  letter-spacing: -0.04em;
+}
+
+.site-status {
+  margin: 16px 0 0;
+  color: var(--muted);
+  line-height: 1.7;
+}
+
+.actions {
+  margin-top: 22px;
+  display: grid;
+  gap: 10px;
+}
+
+.primary-button,
+.secondary-button {
+  width: 100%;
+  border: 0;
+  border-radius: 999px;
+  padding: 14px 18px;
+  font: inherit;
+  font-weight: 800;
+  cursor: pointer;
+}
+
+.primary-button {
+  color: #fffaf4;
+  background: linear-gradient(135deg, var(--accent) 0%, var(--accent-deep) 100%);
+}
+
+.secondary-button {
+  color: var(--text);
+  background: rgba(25, 22, 18, 0.08);
+}

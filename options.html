@@ -1,0 +1,65 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Stillness Settings</title>
+    <link rel="stylesheet" href="options.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="hero">
+        <p class="eyebrow">Chrome Website Blocker</p>
+        <h1>Choose what deserves your attention.</h1>
+        <p class="lede">
+          Add any website you want to block. When you try to open it, Stillness
+          replaces the page with a reflective interruption instead of your usual
+          scroll loop.
+        </p>
+      </section>
+
+      <section class="panel composer">
+        <div>
+          <p class="section-label">Blocked websites</p>
+          <h2>Build a calmer browser.</h2>
+        </div>
+
+        <form id="site-form" class="site-form">
+          <label class="field">
+            <span>Website</span>
+            <input
+              id="site-input"
+              type="text"
+              name="site"
+              placeholder="example.com or https://news.ycombinator.com"
+              autocomplete="off"
+              required
+            />
+          </label>
+          <button type="submit" class="primary-button">Block website</button>
+        </form>
+
+        <p id="status" class="status" aria-live="polite"></p>
+      </section>
+
+      <section class="panel list-panel">
+        <div class="list-header">
+          <div>
+            <p class="section-label">Current list</p>
+            <h2>Your blocked spaces</h2>
+          </div>
+          <div class="count-badge" id="count-badge">0 sites</div>
+        </div>
+
+        <div id="empty-state" class="empty-state" hidden>
+          <p>Nothing is blocked yet.</p>
+          <span>Start with the sites that reliably pull you away from your real priorities.</span>
+        </div>
+
+        <ul id="site-list" class="site-list"></ul>
+      </section>
+    </main>
+
+    <script src="options.js" type="module"></script>
+  </body>
+  </html>
