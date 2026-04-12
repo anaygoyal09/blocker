@@ -7,7 +7,10 @@ const closeButton = document.getElementById("close-button");
 
 const params = new URLSearchParams(window.location.search);
 const attemptedUrl = params.get("url") || "";
-const blockedSite = params.get("site") || "this site";
+const reasonType = params.get("reasonType") || "site";
+const reasonValue = params.get("reasonValue") || "this site";
+const reasonLabel = params.get("reasonLabel") || reasonValue;
+const source = params.get("source") || "manual-list";
 
 const passages = [
   {
@@ -38,7 +41,8 @@ const selection = passages[Math.floor(Math.random() * passages.length)];
 title.textContent = selection.title;
 message.textContent = selection.message;
 reflectionText.textContent = selection.reflection;
-destinationLabel.textContent = describeDestination(attemptedUrl, blockedSite);
+destinationLabel.textContent = describeDestination(attemptedUrl, reasonLabel);
+appendReasonMessage();
 
 backButton.addEventListener("click", () => {
   window.history.back();
@@ -59,4 +63,13 @@ function describeDestination(url, fallbackSite) {
   } catch {
     return fallbackSite;
   }
+}
+
+function appendReasonMessage() {
+  const reasonText =
+    reasonType === "category"
+      ? `Stillness flagged this page as ${reasonLabel.toLowerCase()} using a local ${source.replaceAll("-", " ")} check.`
+      : `Stillness matched this destination against your manual block list.`;
+
+  message.textContent = `${selection.message} ${reasonText}`;
 }

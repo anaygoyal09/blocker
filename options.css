@@ -182,6 +182,62 @@ body::before {
   font-weight: 700;
 }
 
+.settings-copy .compact {
+  margin-top: 12px;
+  max-width: 720px;
+}
+
+.toggle-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 24px;
+}
+
+.toggle-row,
+.category-card {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 18px;
+  border: 1px solid rgba(27, 26, 22, 0.1);
+  border-radius: 22px;
+  padding: 18px;
+  background: var(--panel-strong);
+}
+
+.toggle-row strong,
+.category-card strong {
+  display: block;
+  font-size: 1rem;
+}
+
+.toggle-row span,
+.category-card span {
+  display: block;
+  margin-top: 6px;
+  color: var(--muted);
+  line-height: 1.55;
+  font-size: 0.92rem;
+}
+
+.toggle-row input,
+.category-card input {
+  width: 20px;
+  height: 20px;
+  margin-top: 2px;
+  accent-color: var(--accent);
+}
+
+.category-section {
+  margin-top: 28px;
+}
+
+.category-list {
+  display: grid;
+  gap: 14px;
+  margin-top: 18px;
+}
+
 .list-header {
   display: flex;
   gap: 16px;
@@ -260,6 +316,8 @@ body::before {
   }
 
   .site-form,
+  .toggle-row,
+  .category-card,
   .site-item,
   .list-header {
     grid-template-columns: 1fr;

@@ -1,4 +1,5 @@
 const STORAGE_KEY = "blockedSites";
+const SETTINGS_KEY = "blockingSettings";
 
 const form = document.getElementById("site-form");
 const siteInput = document.getElementById("site-input");
@@ -6,8 +7,16 @@ const siteList = document.getElementById("site-list");
 const status = document.getElementById("status");
 const emptyState = document.getElementById("empty-state");
 const countBadge = document.getElementById("count-badge");
+const scanOpenPagesInput = document.getElementById("scan-open-pages");
+const scanGoogleSearchesInput = document.getElementById("scan-google-searches");
+const categoryList = document.getElementById("category-list");
+
+const { blockingSettings, categories } = await chrome.runtime.sendMessage({
+  type: "getBlockingSettings"
+});
 
 await render();
+renderCategoryControls();
 
 form.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -37,6 +46,44 @@ form.addEventListener("submit", async (event) => {
   await render();
 });
 
+scanOpenPagesInput.addEventListener("change", async () => {
+  const nextSettings = {
+    ...blockingSettings,
+    scanOpenPages: scanOpenPagesInput.checked
+  };
+  await saveBlockingSettings(nextSettings);
+});
+
+scanGoogleSearchesInput.addEventListener("change", async () => {
+  const nextSettings = {
+    ...blockingSettings,
+    scanGoogleSearches: scanGoogleSearchesInput.checked
+  };
+  await saveBlockingSettings(nextSettings);
+});
+
+categoryList.addEventListener("change", async (event) => {
+  const input = event.target.closest("input[data-category-id]");
+
+  if (!input) {
+    return;
+  }
+
+  const categoryId = input.dataset.categoryId;
+  const nextEnabledIds = new Set(blockingSettings.enabledCategoryIds);
+
+  if (input.checked) {
+    nextEnabledIds.add(categoryId);
+  } else {
+    nextEnabledIds.delete(categoryId);
+  }
+
+  await saveBlockingSettings({
+    ...blockingSettings,
+    enabledCategoryIds: [...nextEnabledIds]
+  });
+});
+
 siteList.addEventListener("click", async (event) => {
   const button = event.target.closest("button[data-site]");
 
@@ -57,6 +104,11 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
   if (areaName === "sync" && changes[STORAGE_KEY]) {
     await render();
   }
+
+  if (areaName === "sync" && changes[SETTINGS_KEY]) {
+    Object.assign(blockingSettings, changes[SETTINGS_KEY].newValue ?? {});
+    renderCategoryControls();
+  }
 });
 
 async function render() {
@@ -76,6 +128,26 @@ async function render() {
       <button type="button" class="remove-button" data-site="${escapeHtml(site)}">Remove</button>
     `;
     siteList.appendChild(item);
+  }
+}
+
+function renderCategoryControls() {
+  scanOpenPagesInput.checked = Boolean(blockingSettings.scanOpenPages);
+  scanGoogleSearchesInput.checked = Boolean(blockingSettings.scanGoogleSearches);
+  categoryList.innerHTML = "";
+
+  for (const category of categories) {
+    const enabled = blockingSettings.enabledCategoryIds.includes(category.id);
+    const label = document.createElement("label");
+    label.className = "category-card";
+    label.innerHTML = `
+      <input type="checkbox" data-category-id="${escapeHtml(category.id)}" ${enabled ? "checked" : ""} />
+      <div>
+        <strong>${escapeHtml(category.label)}</strong>
+        <span>Auto-block pages the local classifier thinks fit this category.</span>
+      </div>
+    `;
+    categoryList.appendChild(label);
   }
 }
 
@@ -101,6 +173,13 @@ function normalizeSite(input) {
 
 function setStatus(message) {
   status.textContent = message;
+}
+
+async function saveBlockingSettings(nextSettings) {
+  Object.assign(blockingSettings, nextSettings);
+  await chrome.storage.sync.set({ [SETTINGS_KEY]: blockingSettings });
+  renderCategoryControls();
+  setStatus("Smart blocking settings updated.");
 }
 
 function escapeHtml(value) {

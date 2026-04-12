@@ -42,6 +42,43 @@
         <p id="status" class="status" aria-live="polite"></p>
       </section>
 
+      <section class="panel">
+        <div class="settings-copy">
+          <p class="section-label">Smart blocking</p>
+          <h2>Tiny local category model</h2>
+          <p class="lede compact">
+            Stillness can classify a page after it opens using its URL, title, and visible text.
+            Keep it conservative to reduce false positives.
+          </p>
+        </div>
+
+        <div class="toggle-list">
+          <label class="toggle-row">
+            <div>
+              <strong>Scan opened websites</strong>
+              <span>Open the tab, inspect the page locally, then block it if it looks like a flagged category.</span>
+            </div>
+            <input id="scan-open-pages" type="checkbox" />
+          </label>
+
+          <label class="toggle-row">
+            <div>
+              <strong>Scan Google searches</strong>
+              <span>Check Google queries for blocked categories like 18+ or games before results pull you in.</span>
+            </div>
+            <input id="scan-google-searches" type="checkbox" />
+          </label>
+        </div>
+
+        <div class="category-section">
+          <div>
+            <p class="section-label">Categories</p>
+            <h2>Choose what to auto-block</h2>
+          </div>
+          <div id="category-list" class="category-list"></div>
+        </div>
+      </section>
+
       <section class="panel list-panel">
         <div class="list-header">
           <div>
