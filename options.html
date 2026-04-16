@@ -42,6 +42,43 @@
         <p id="status" class="status" aria-live="polite"></p>
       </section>
 
+      <section class="panel composer">
+        <div>
+          <p class="section-label">Website limits</p>
+          <h2>Cap time instead of fully blocking.</h2>
+          <p class="lede compact">
+            Add a site and a daily limit in minutes. Example: YouTube for 15 minutes per day.
+          </p>
+        </div>
+
+        <form id="limit-form" class="site-form">
+          <label class="field">
+            <span>Website</span>
+            <input
+              id="limit-site-input"
+              type="text"
+              name="limit-site"
+              placeholder="youtube.com"
+              autocomplete="off"
+              required
+            />
+          </label>
+          <label class="field">
+            <span>Daily limit (minutes)</span>
+            <input
+              id="limit-minutes-input"
+              type="number"
+              name="limit-minutes"
+              min="1"
+              step="1"
+              placeholder="15"
+              required
+            />
+          </label>
+          <button type="submit" class="primary-button">Save limit</button>
+        </form>
+      </section>
+
       <section class="panel">
         <div class="settings-copy">
           <p class="section-label">Smart blocking</p>
@@ -94,6 +131,23 @@
         </div>
 
         <ul id="site-list" class="site-list"></ul>
+      </section>
+
+      <section class="panel list-panel">
+        <div class="list-header">
+          <div>
+            <p class="section-label">Daily caps</p>
+            <h2>Your site limits</h2>
+          </div>
+          <div class="count-badge" id="limit-count-badge">0 limits</div>
+        </div>
+
+        <div id="limits-empty-state" class="empty-state" hidden>
+          <p>No limits yet.</p>
+          <span>Use limits when a site should be allowed in moderation instead of fully blocked.</span>
+        </div>
+
+        <ul id="limit-list" class="site-list"></ul>
       </section>
     </main>
 

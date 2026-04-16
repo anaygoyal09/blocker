@@ -30,7 +30,11 @@ toggleSite.addEventListener("click", async () => {
 });
 
 openSettings.addEventListener("click", async () => {
-  await chrome.runtime.openOptionsPage();
+  try {
+    await chrome.runtime.openOptionsPage();
+  } catch {
+    await chrome.tabs.create({ url: chrome.runtime.getURL("options.html") });
+  }
 });
 
 async function renderActiveSite() {

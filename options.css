@@ -108,7 +108,7 @@ body::before {
 
 .site-form {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) minmax(180px, 220px) auto;
   gap: 16px;
   align-items: end;
   margin-top: 24px;
@@ -134,6 +134,10 @@ body::before {
   color: var(--text);
   background: rgba(255, 255, 255, 0.78);
   transition: border-color 160ms ease, transform 160ms ease, box-shadow 160ms ease;
+}
+
+.composer:first-of-type .site-form {
+  grid-template-columns: minmax(0, 1fr) auto;
 }
 
 .field input:focus {

@@ -1,7 +1,10 @@
 const BLOCKED_PAGE = "blocked.html";
 const STORAGE_KEY = "blockedSites";
 const SETTINGS_KEY = "blockingSettings";
+const LIMITS_KEY = "siteLimits";
+const USAGE_KEY = "siteUsage";
 const DEFAULT_BLOCKED_SITES = ["youtube.com", "x.com"];
+const LIMIT_ALARM = "site-limit-check";
 const CATEGORY_DEFINITIONS = [
   {
     id: "social-media",
@@ -112,10 +115,15 @@ const DEFAULT_SETTINGS = {
   scanGoogleSearches: false,
   enabledCategoryIds: ["social-media", "games", "adult"]
 };
+let activeSession = null;
 
 chrome.runtime.onInstalled.addListener(async () => {
-  const { [STORAGE_KEY]: blockedSites, [SETTINGS_KEY]: blockingSettings } =
-    await chrome.storage.sync.get([STORAGE_KEY, SETTINGS_KEY]);
+  const {
+    [STORAGE_KEY]: blockedSites,
+    [SETTINGS_KEY]: blockingSettings,
+    [LIMITS_KEY]: siteLimits,
+    [USAGE_KEY]: siteUsage
+  } = await chrome.storage.sync.get([STORAGE_KEY, SETTINGS_KEY, LIMITS_KEY, USAGE_KEY]);
 
   if (!Array.isArray(blockedSites)) {
     await chrome.storage.sync.set({
@@ -128,9 +136,26 @@ chrome.runtime.onInstalled.addListener(async () => {
       [SETTINGS_KEY]: DEFAULT_SETTINGS
     });
   }
+
+  if (!isValidLimits(siteLimits)) {
+    await chrome.storage.sync.set({
+      [LIMITS_KEY]: []
+    });
+  }
+
+  if (!isValidUsage(siteUsage)) {
+    await chrome.storage.sync.set({
+      [USAGE_KEY]: {}
+    });
+  }
 });
 
-chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
+chrome.runtime.onStartup.addListener(async () => {
+  await clearLimitAlarm();
+  activeSession = null;
+});
+
+chrome.tabs.onUpdated.addListener(async (tabId, changeInfo, tab) => {
   if (!changeInfo.url) {
     return;
   }
@@ -138,17 +163,37 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
   const currentUrl = changeInfo.url;
 
   if (isExtensionPage(currentUrl)) {
+    if (tab?.id && activeSession?.tabId === tab.id) {
+      await stopActiveSession();
+    }
     return;
   }
 
   const settings = await getBlockingSettings();
   const blockedSites = await getBlockedSites();
   const matchedSite = findBlockedMatch(currentUrl, blockedSites);
+  const limitMatch = await getExceededLimitMatch(currentUrl);
+
+  if (limitMatch) {
+    if (activeSession?.tabId === tabId) {
+      await stopActiveSession();
+    }
+    await redirectTab(tabId, currentUrl, {
+      type: "limit",
+      value: limitMatch.site,
+      label: limitMatch.site,
+      source: "daily-limit"
+    });
+    return;
+  }
 
   if (!matchedSite) {
     const categoryMatch = classifyUrl(currentUrl, settings);
 
     if (categoryMatch) {
+      if (activeSession?.tabId === tabId) {
+        await stopActiveSession();
+      }
       await redirectTab(tabId, currentUrl, {
         type: "category",
         value: categoryMatch.id,
@@ -157,15 +202,50 @@ chrome.tabs.onUpdated.addListener(async (tabId, changeInfo) => {
       });
     }
 
+    if (tab?.active) {
+      await syncActiveSession(tabId);
+    }
+
     return;
   }
 
+  if (activeSession?.tabId === tabId) {
+    await stopActiveSession();
+  }
   await redirectTab(tabId, currentUrl, {
     type: "site",
     value: matchedSite,
     label: matchedSite,
     source: "manual-list"
   });
+});
+
+chrome.tabs.onActivated.addListener(async ({ tabId }) => {
+  await syncActiveSession(tabId);
+});
+
+chrome.windows.onFocusChanged.addListener(async (windowId) => {
+  if (windowId === chrome.windows.WINDOW_ID_NONE) {
+    await stopActiveSession();
+    return;
+  }
+
+  const [activeTab] = await chrome.tabs.query({ active: true, windowId });
+  await syncActiveSession(activeTab?.id ?? null);
+});
+
+chrome.tabs.onRemoved.addListener(async (tabId) => {
+  if (activeSession?.tabId === tabId) {
+    await stopActiveSession();
+  }
+});
+
+chrome.alarms.onAlarm.addListener(async (alarm) => {
+  if (alarm.name !== LIMIT_ALARM) {
+    return;
+  }
+
+  await enforceActiveLimit();
 });
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
@@ -188,6 +268,13 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     return true;
   }
 
+  if (message?.type === "getSiteLimits") {
+    Promise.all([getSiteLimits(), getSiteUsage()]).then(([siteLimits, siteUsage]) =>
+      sendResponse({ siteLimits, siteUsage })
+    );
+    return true;
+  }
+
   if (message?.type === "pageContentScan") {
     handlePageContentScan(message.page, _sender).then((result) => sendResponse(result));
     return true;
@@ -199,6 +286,23 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
 async function getBlockedSites() {
   const { [STORAGE_KEY]: blockedSites = [] } = await chrome.storage.sync.get(STORAGE_KEY);
   return blockedSites.filter(Boolean);
+}
+
+async function getSiteLimits() {
+  const { [LIMITS_KEY]: siteLimits = [] } = await chrome.storage.sync.get(LIMITS_KEY);
+  return Array.isArray(siteLimits)
+    ? siteLimits
+        .map((entry) => ({
+          site: normalizeSite(entry?.site ?? ""),
+          limitMinutes: Number(entry?.limitMinutes ?? 0)
+        }))
+        .filter((entry) => entry.site && Number.isFinite(entry.limitMinutes) && entry.limitMinutes > 0)
+    : [];
+}
+
+async function getSiteUsage() {
+  const { [USAGE_KEY]: siteUsage = {} } = await chrome.storage.sync.get(USAGE_KEY);
+  return isValidUsage(siteUsage) ? siteUsage : {};
 }
 
 async function getBlockingSettings() {
@@ -223,6 +327,18 @@ async function handlePageContentScan(page, sender) {
 
   if (!settings.scanOpenPages) {
     return { blocked: false };
+  }
+
+  const limitMatch = await getExceededLimitMatch(page.url);
+
+  if (limitMatch) {
+    await redirectTab(sender.tab.id, page.url, {
+      type: "limit",
+      value: limitMatch.site,
+      label: limitMatch.site,
+      source: "daily-limit"
+    });
+    return { blocked: true };
   }
 
   const siteMatch = findBlockedMatch(page.url, await getBlockedSites());
@@ -293,6 +409,160 @@ function normalizeSite(input) {
     return new URL(maybeUrl).hostname.replace(/^www\./, "");
   } catch {
     return trimmed.replace(/^www\./, "").replace(/\/.*$/, "");
+  }
+}
+
+async function getExceededLimitMatch(url) {
+  const hostname = getHostname(url);
+
+  if (!hostname) {
+    return null;
+  }
+
+  const [siteLimits, siteUsage] = await Promise.all([getSiteLimits(), getSiteUsage()]);
+  const matchedLimit = findLimitMatch(hostname, siteLimits);
+
+  if (!matchedLimit) {
+    return null;
+  }
+
+  const todayUsageMs = Number(siteUsage[getTodayUsageKey()]?.[matchedLimit.site] ?? 0);
+  const limitMs = matchedLimit.limitMinutes * 60 * 1000;
+
+  if (todayUsageMs >= limitMs) {
+    return matchedLimit;
+  }
+
+  return null;
+}
+
+async function syncActiveSession(tabId) {
+  await stopActiveSession();
+
+  if (!tabId) {
+    return;
+  }
+
+  const tab = await chrome.tabs.get(tabId).catch(() => null);
+
+  if (!tab?.active || !tab.url || isExtensionPage(tab.url)) {
+    return;
+  }
+
+  const hostname = getHostname(tab.url);
+
+  if (!hostname) {
+    return;
+  }
+
+  const siteLimits = await getSiteLimits();
+  const matchedLimit = findLimitMatch(hostname, siteLimits);
+
+  if (!matchedLimit) {
+    await clearLimitAlarm();
+    return;
+  }
+
+  const siteUsage = await getSiteUsage();
+  const todayUsageMs = Number(siteUsage[getTodayUsageKey()]?.[matchedLimit.site] ?? 0);
+  const limitMs = matchedLimit.limitMinutes * 60 * 1000;
+
+  if (todayUsageMs >= limitMs) {
+    await redirectTab(tab.id, tab.url, {
+      type: "limit",
+      value: matchedLimit.site,
+      label: matchedLimit.site,
+      source: "daily-limit"
+    });
+    return;
+  }
+
+  activeSession = {
+    tabId: tab.id,
+    site: matchedLimit.site,
+    url: tab.url,
+    startedAt: Date.now()
+  };
+
+  const remainingMs = Math.max(limitMs - todayUsageMs, 1000);
+  await chrome.alarms.create(LIMIT_ALARM, {
+    when: Date.now() + remainingMs
+  });
+}
+
+async function stopActiveSession() {
+  if (!activeSession) {
+    await clearLimitAlarm();
+    return;
+  }
+
+  const elapsedMs = Math.max(0, Date.now() - activeSession.startedAt);
+
+  if (elapsedMs > 0) {
+    await addUsage(activeSession.site, elapsedMs);
+  }
+
+  activeSession = null;
+  await clearLimitAlarm();
+}
+
+async function enforceActiveLimit() {
+  if (!activeSession) {
+    return;
+  }
+
+  const session = activeSession;
+  await stopActiveSession();
+
+  const tab = await chrome.tabs.get(session.tabId).catch(() => null);
+
+  if (!tab?.id || !tab.url) {
+    return;
+  }
+
+  const limitMatch = await getExceededLimitMatch(tab.url);
+
+  if (!limitMatch) {
+    await syncActiveSession(tab.id);
+    return;
+  }
+
+  await redirectTab(tab.id, tab.url, {
+    type: "limit",
+    value: limitMatch.site,
+    label: limitMatch.site,
+    source: "daily-limit"
+  });
+}
+
+async function addUsage(site, elapsedMs) {
+  const siteUsage = await getSiteUsage();
+  const key = getTodayUsageKey();
+  const usageForDay = { ...(siteUsage[key] ?? {}) };
+  usageForDay[site] = Number(usageForDay[site] ?? 0) + elapsedMs;
+  siteUsage[key] = usageForDay;
+  await chrome.storage.sync.set({ [USAGE_KEY]: siteUsage });
+}
+
+function getTodayUsageKey() {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function findLimitMatch(hostname, siteLimits) {
+  for (const entry of siteLimits) {
+    if (hostname === entry.site || hostname.endsWith(`.${entry.site}`)) {
+      return entry;
+    }
+  }
+
+  return null;
+}
+
+function getHostname(url) {
+  try {
+    return new URL(url).hostname.replace(/^www\./, "").toLowerCase();
+  } catch {
+    return "";
   }
 }
 
@@ -450,6 +720,10 @@ async function redirectTab(tabId, currentUrl, reason) {
   await chrome.tabs.update(tabId, { url: redirectUrl });
 }
 
+async function clearLimitAlarm() {
+  await chrome.alarms.clear(LIMIT_ALARM);
+}
+
 function mergeSettings(settings) {
   const normalized = isValidSettings(settings) ? settings : {};
   const enabledIds = Array.isArray(normalized.enabledCategoryIds)
@@ -473,6 +747,14 @@ function mergeSettings(settings) {
 
 function isValidSettings(settings) {
   return Boolean(settings && typeof settings === "object");
+}
+
+function isValidLimits(siteLimits) {
+  return Array.isArray(siteLimits);
+}
+
+function isValidUsage(siteUsage) {
+  return Boolean(siteUsage && typeof siteUsage === "object" && !Array.isArray(siteUsage));
 }
 
 function safeLower(value) {

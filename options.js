@@ -1,9 +1,16 @@
 const STORAGE_KEY = "blockedSites";
 const SETTINGS_KEY = "blockingSettings";
+const LIMITS_KEY = "siteLimits";
 
 const form = document.getElementById("site-form");
 const siteInput = document.getElementById("site-input");
 const siteList = document.getElementById("site-list");
+const limitForm = document.getElementById("limit-form");
+const limitSiteInput = document.getElementById("limit-site-input");
+const limitMinutesInput = document.getElementById("limit-minutes-input");
+const limitList = document.getElementById("limit-list");
+const limitsEmptyState = document.getElementById("limits-empty-state");
+const limitCountBadge = document.getElementById("limit-count-badge");
 const status = document.getElementById("status");
 const emptyState = document.getElementById("empty-state");
 const countBadge = document.getElementById("count-badge");
@@ -11,9 +18,7 @@ const scanOpenPagesInput = document.getElementById("scan-open-pages");
 const scanGoogleSearchesInput = document.getElementById("scan-google-searches");
 const categoryList = document.getElementById("category-list");
 
-const { blockingSettings, categories } = await chrome.runtime.sendMessage({
-  type: "getBlockingSettings"
-});
+const { blockingSettings, categories } = await loadBlockingSettings();
 
 await render();
 renderCategoryControls();
@@ -43,6 +48,34 @@ form.addEventListener("submit", async (event) => {
   await chrome.storage.sync.set({ [STORAGE_KEY]: nextSites });
   siteInput.value = "";
   setStatus(`${normalizedSite} will now be interrupted.`);
+  await render();
+});
+
+limitForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+
+  const normalizedSite = normalizeSite(limitSiteInput.value);
+  const limitMinutes = Number.parseInt(limitMinutesInput.value, 10);
+
+  if (!normalizedSite) {
+    setStatus("Enter a valid hostname for the limit, like youtube.com.");
+    return;
+  }
+
+  if (!Number.isFinite(limitMinutes) || limitMinutes <= 0) {
+    setStatus("Enter a daily limit above 0 minutes.");
+    return;
+  }
+
+  const siteLimits = await getSiteLimits();
+  const nextLimits = siteLimits.filter((entry) => entry.site !== normalizedSite);
+  nextLimits.push({ site: normalizedSite, limitMinutes });
+  nextLimits.sort((left, right) => left.site.localeCompare(right.site));
+
+  await chrome.storage.sync.set({ [LIMITS_KEY]: nextLimits });
+  limitSiteInput.value = "";
+  limitMinutesInput.value = "";
+  setStatus(`${normalizedSite} is now limited to ${limitMinutes} minutes per day.`);
   await render();
 });
 
@@ -100,8 +133,28 @@ siteList.addEventListener("click", async (event) => {
   await render();
 });
 
+limitList.addEventListener("click", async (event) => {
+  const button = event.target.closest("button[data-limit-site]");
+
+  if (!button) {
+    return;
+  }
+
+  const siteToRemove = button.dataset.limitSite;
+  const siteLimits = await getSiteLimits();
+  const nextLimits = siteLimits.filter((entry) => entry.site !== siteToRemove);
+
+  await chrome.storage.sync.set({ [LIMITS_KEY]: nextLimits });
+  setStatus(`${siteToRemove} no longer has a daily limit.`);
+  await render();
+});
+
 chrome.storage.onChanged.addListener(async (changes, areaName) => {
   if (areaName === "sync" && changes[STORAGE_KEY]) {
+    await render();
+  }
+
+  if (areaName === "sync" && changes[LIMITS_KEY]) {
     await render();
   }
 
@@ -112,10 +165,17 @@ chrome.storage.onChanged.addListener(async (changes, areaName) => {
 });
 
 async function render() {
-  const blockedSites = await getBlockedSites();
+  const [blockedSites, siteLimits, siteUsage] = await Promise.all([
+    getBlockedSites(),
+    getSiteLimits(),
+    getSiteUsage()
+  ]);
   siteList.innerHTML = "";
+  limitList.innerHTML = "";
   countBadge.textContent = `${blockedSites.length} ${blockedSites.length === 1 ? "site" : "sites"}`;
+  limitCountBadge.textContent = `${siteLimits.length} ${siteLimits.length === 1 ? "limit" : "limits"}`;
   emptyState.hidden = blockedSites.length > 0;
+  limitsEmptyState.hidden = siteLimits.length > 0;
 
   for (const site of blockedSites) {
     const item = document.createElement("li");
@@ -128,6 +188,22 @@ async function render() {
       <button type="button" class="remove-button" data-site="${escapeHtml(site)}">Remove</button>
     `;
     siteList.appendChild(item);
+  }
+
+  const todayUsage = siteUsage[getTodayUsageKey()] ?? {};
+
+  for (const entry of siteLimits) {
+    const usedMinutes = Math.floor(Number(todayUsage[entry.site] ?? 0) / 60000);
+    const item = document.createElement("li");
+    item.className = "site-item";
+    item.innerHTML = `
+      <div>
+        <strong>${escapeHtml(entry.site)}</strong>
+        <span>${usedMinutes} / ${entry.limitMinutes} minutes used today.</span>
+      </div>
+      <button type="button" class="remove-button" data-limit-site="${escapeHtml(entry.site)}">Remove</button>
+    `;
+    limitList.appendChild(item);
   }
 }
 
@@ -156,6 +232,45 @@ async function getBlockedSites() {
   return blockedSites.filter(Boolean);
 }
 
+async function getSiteLimits() {
+  const { [LIMITS_KEY]: siteLimits = [] } = await chrome.storage.sync.get(LIMITS_KEY);
+  return Array.isArray(siteLimits) ? siteLimits.filter((entry) => entry?.site) : [];
+}
+
+async function getSiteUsage() {
+  const { siteUsage = {} } = await chrome.storage.sync.get("siteUsage");
+  return siteUsage && typeof siteUsage === "object" && !Array.isArray(siteUsage) ? siteUsage : {};
+}
+
+async function loadBlockingSettings() {
+  try {
+    const response = await chrome.runtime.sendMessage({
+      type: "getBlockingSettings"
+    });
+
+    if (response?.blockingSettings && Array.isArray(response?.categories)) {
+      return response;
+    }
+  } catch {
+    // Fall through to safe defaults so the options page remains usable.
+  }
+
+  return {
+    blockingSettings: {
+      scanOpenPages: true,
+      scanGoogleSearches: false,
+      enabledCategoryIds: ["social-media", "games", "adult"]
+    },
+    categories: [
+      { id: "social-media", label: "Social media" },
+      { id: "games", label: "Games" },
+      { id: "adult", label: "18+ / adult" },
+      { id: "shopping", label: "Shopping" },
+      { id: "video-streaming", label: "Video streaming" }
+    ]
+  };
+}
+
 function normalizeSite(input) {
   const trimmed = input.trim().toLowerCase();
 
@@ -180,6 +295,10 @@ async function saveBlockingSettings(nextSettings) {
   await chrome.storage.sync.set({ [SETTINGS_KEY]: blockingSettings });
   renderCategoryControls();
   setStatus("Smart blocking settings updated.");
+}
+
+function getTodayUsageKey() {
+  return new Date().toISOString().slice(0, 10);
 }
 
 function escapeHtml(value) {

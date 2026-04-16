@@ -5,7 +5,8 @@
   "description": "Block distracting websites and replace them with a deliberate pause.",
   "permissions": [
     "storage",
-    "tabs"
+    "tabs",
+    "alarms"
   ],
   "host_permissions": [
     "<all_urls>"

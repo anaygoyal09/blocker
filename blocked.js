@@ -67,9 +67,11 @@ function describeDestination(url, fallbackSite) {
 
 function appendReasonMessage() {
   const reasonText =
-    reasonType === "category"
-      ? `Stillness flagged this page as ${reasonLabel.toLowerCase()} using a local ${source.replaceAll("-", " ")} check.`
-      : `Stillness matched this destination against your manual block list.`;
+    reasonType === "limit"
+      ? `Stillness blocked this site because you hit its daily time limit.`
+      : reasonType === "category"
+        ? `Stillness flagged this page as ${reasonLabel.toLowerCase()} using a local ${source.replaceAll("-", " ")} check.`
+        : `Stillness matched this destination against your manual block list.`;
 
   message.textContent = `${selection.message} ${reasonText}`;
 }
